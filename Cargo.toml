@@ -1,0 +1,13 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+proc-macro2 = "1.0.78"
+quote = "1.0.35"
+syn = { version = "2.0.51", features = ["full"] }
+tupley = { version = "0.0.13", path = "../tupley" }
+
+[lib]
+proc-macro = true
