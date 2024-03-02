@@ -1,97 +1,127 @@
-extern crate proc_macro;
+#![doc = include_str!("../README.md")]
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
-use syn::punctuated::Punctuated;
+use proc_macro2::TokenTree;
+use quote::quote;
+use std::str::FromStr;
 use syn::{parse_macro_input, Block, FnArg, ItemFn, Pat, ReturnType, Type};
+
+#[proc_macro]
+pub fn to_curry(input: TokenStream) -> TokenStream {
+    let input = proc_macro2::TokenStream::from(input);
+
+    let mut in_body = true;
+    let mut f = None;
+    let mut body = None;
+    let mut args = vec![];
+
+    for tt in input.into_iter() {
+        match tt {
+            TokenTree::Group(b) => body = Some(b),
+            TokenTree::Punct(p) if p.as_char() == '|' => in_body = !in_body,
+            TokenTree::Ident(ident) => {
+                if in_body {
+                    f = Some(ident)
+                } else {
+                    args.push(ident)
+                }
+            }
+            _ => (),
+        }
+    }
+
+    let f = f.unwrap();
+    let body = body.unwrap();
+
+    let gen = quote!(
+        #( move |#args| )* #f #body
+    );
+
+    gen.into()
+}
 
 #[proc_macro_attribute]
 pub fn curry(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(item as ItemFn);
-    generate_curry(parsed).into()
-}
 
-fn extract_type(a: FnArg) -> Box<Type> {
-    match a {
-        FnArg::Typed(p) => p.ty,
-        _ => panic!("Not supported on types with `self`!"),
-    }
-}
-
-fn extract_arg_pat(a: FnArg) -> Box<Pat> {
-    match a {
-        FnArg::Typed(p) => p.pat,
-        _ => panic!("Not supported on types with `self`!"),
-    }
-}
-
-fn extract_return_type(a: ReturnType) -> Box<Type> {
-    match a {
-        ReturnType::Type(_, p) => p,
-        _ => panic!("Not supported on functions without return types!"),
-    }
-}
-
-fn extract_arg_types(fn_args: Punctuated<FnArg, syn::token::Comma>) -> Vec<Box<Type>> {
-    return fn_args.into_iter().map(extract_type).collect::<Vec<_>>();
-}
-
-fn extract_arg_idents(fn_args: Punctuated<FnArg, syn::token::Comma>) -> Vec<Box<Pat>> {
-    return fn_args.into_iter().map(extract_arg_pat).collect::<Vec<_>>();
-}
-
-fn generate_type_aliases(
-    fn_arg_types: &[Box<Type>],
-    fn_return_type: Box<Type>,
-    fn_name: &syn::Ident,
-) -> Vec<proc_macro2::TokenStream> {
-    let type_t0 = format_ident!("_T0{}", fn_name);
-    let mut type_aliases = vec![quote! { type #type_t0 = #fn_return_type }];
-    for (i, t) in (1..).zip(fn_arg_types.into_iter().rev()) {
-        let p = format_ident!("_{}{}", format!("T{}", i - 1), fn_name);
-        let n = format_ident!("_{}{}", format!("T{}", i), fn_name);
-        type_aliases.push(quote! {
-            type #n = impl Fn(#t) -> #p
-        })
-    }
-    return type_aliases;
-}
-
-fn generate_body(fn_args: &[Box<Pat>], body: Box<Block>) -> proc_macro2::TokenStream {
-    quote! {
-        return #( move |#fn_args| )* #body
-    }
-}
-
-fn generate_curry(parsed: ItemFn) -> proc_macro2::TokenStream {
-    let fn_body = parsed.block;
+    let body = parsed.block;
     let sig = parsed.sig;
     let vis = parsed.vis;
-    let fn_name = sig.ident;
+
+    let fn_ident = sig.ident;
     let fn_args = sig.inputs;
     let fn_return_type = sig.output;
+    let (impl_generics, _ty_generics, where_clause) = sig.generics.split_for_impl();
 
-    let arg_idents = extract_arg_idents(fn_args.clone());
-    let first_ident = &arg_idents.first().unwrap();
-    let curried_body = generate_body(&arg_idents[1..], fn_body.clone());
+    let mut arg_idents = vec![];
+    let mut arg_types = vec![];
+    for arg in fn_args.into_iter() {
+        let (ident, ty) = match arg {
+            FnArg::Typed(p) => (p.pat, p.ty),
+            FnArg::Receiver(_) => panic!("self parameter is unsupported now"),
+        };
+        arg_idents.push(ident);
+        arg_types.push(ty);
+    }
 
-    let arg_types = extract_arg_types(fn_args.clone());
-    let first_type = &arg_types.first().unwrap();
-    let type_aliases = generate_type_aliases(
-        &arg_types[1..],
-        extract_return_type(fn_return_type),
-        &fn_name,
+    let return_type = generate_return_type(&arg_types, fn_return_type);
+    let body = generate_body(&arg_idents, &arg_types, body);
+    let first_arg_ident = arg_idents.first().unwrap();
+    let first_arg_type = arg_types.first().unwrap();
+
+    let new_fn = quote!(
+        #vis fn #fn_ident #impl_generics (#first_arg_ident: #first_arg_type) #return_type #where_clause {
+            #body
+        }
     );
 
-    let return_type = format_ident!("_{}{}", format!("T{}", type_aliases.len() - 1), &fn_name);
+    println!("{}", new_fn);
 
-    let gen = quote! {
-        #(#type_aliases);* ;
-        #vis fn #fn_name (#first_ident: #first_type) -> #return_type {
-            #curried_body ;
-        }
-    };
+    new_fn.into()
+}
 
-    println!("{}", gen);
-    return gen;
+fn generate_return_type(
+    types: &[Box<Type>],
+    fn_return_type: ReturnType,
+) -> proc_macro2::TokenStream {
+    let last = types.len();
+    let range = 1..last;
+    let len = range.len();
+
+    let types = &types[range.clone()];
+
+    let fn_return_type = quote!(#fn_return_type).to_string();
+    let mut token_stream = String::new();
+    for ty in types.iter() {
+        let ty = quote!(#ty);
+        token_stream += &format!("-> Box<dyn FnOnce({ty})");
+    }
+    token_stream += &fn_return_type;
+    token_stream += &">".repeat(len);
+
+    proc_macro2::TokenStream::from_str(&token_stream).unwrap()
+}
+
+fn generate_body(
+    idents: &[Box<Pat>],
+    types: &[Box<Type>],
+    body: Box<Block>,
+) -> proc_macro2::TokenStream {
+    let last = types.len();
+    let range = 1..last;
+    let len = range.len();
+
+    let idents = &idents[range.clone()];
+    let types = &types[range];
+
+    let body = quote!(#body);
+    let mut token_stream = String::new();
+    for (id, ty) in idents.iter().zip(types.iter()) {
+        let (ident, ty) = (quote!(#id), quote!(#ty));
+        token_stream += &format!("Box::new( move |{ident}: {ty}| ");
+    }
+    token_stream += &format!("{body}");
+    token_stream += &")".repeat(len);
+
+    proc_macro2::TokenStream::from_str(&token_stream).unwrap()
 }

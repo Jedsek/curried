@@ -3,13 +3,12 @@
 version = 3
 
 [[package]]
-name = "demo"
+name = "curried"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
  "syn",
- "tupley",
 ]
 
 [[package]]
@@ -40,10 +39,6 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
-
-[[package]]
-name = "tupley"
-version = "0.0.13"
 
 [[package]]
 name = "unicode-ident"
