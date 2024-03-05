@@ -44,13 +44,10 @@ pub fn to_curry(input: TokenStream) -> TokenStream {
 pub fn curry(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(item as ItemFn);
 
-    let body = parsed.block;
-    let sig = parsed.sig;
-    let vis = parsed.vis;
+    let (body, sig, vis) = (parsed.block, parsed.sig, parsed.vis);
 
-    let fn_ident = sig.ident;
-    let fn_args = sig.inputs;
     let fn_return_type = sig.output;
+    let (fn_ident, fn_args) = (sig.ident, sig.inputs);
     let (impl_generics, _ty_generics, where_clause) = sig.generics.split_for_impl();
 
     let mut arg_idents = vec![];
@@ -75,7 +72,7 @@ pub fn curry(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     );
 
-    println!("{}", new_fn);
+    // println!("{}", new_fn);
 
     new_fn.into()
 }

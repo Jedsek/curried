@@ -9,7 +9,6 @@ Currying function to be used in normal && generic && map case, with procedural m
 
 ```rust
 use curried::{curry, to_curry};
-use std::fmt::Display;
 
 #[curry]
 fn add(a: i32, b: i32, c: i32) -> i32 {
@@ -19,7 +18,7 @@ fn add(a: i32, b: i32, c: i32) -> i32 {
 #[curry]
 fn concat_string<T>(a: T, b: T, c: T) -> String
 where
-    T: Display + 'static, // Note: You should additionally add 'static
+    T: std::fmt::Display + 'static, // Note: You should additionally add 'static
 {
     a.to_string() + &b.to_string() + &c.to_string()
 }
@@ -49,14 +48,14 @@ fn map_curry() {
 ## Note
 
 - These code could be successfully compiled:
-additional
+
 ```rust
 fn f<T>(_: i32, _: T) {}
 f(1, 1);
 f(1, "123");
 
 
-#[curry]
+#[curried::curry]
 fn g<T>(_: i32, _: T) {}
 g(1)(1);
 g(1)("123");
@@ -64,8 +63,8 @@ g(1)("123");
 
 - But these would not:
 
-```rust
-#[curry]
+```compile_failed
+#[curried::curry]
 fn f<T>(_: i32, _: T) {}
 
 let g = f(1);
@@ -76,6 +75,8 @@ g("123");
 - If you want to use the same function with different typed argument:
 
 ```rust
+use curried::to_curry;
+
 fn f<T>(_: i32, _: T) {}
 
 let g1 = to_curry!(|a, b| f(a, b));
@@ -91,6 +92,12 @@ gg2("123");
 - If you want to use curried function in `map`:
 
 ```rust
+use curried::to_curry;
+
+fn product(a: i32, b: i32, c: i32) -> i32 {
+    a * b * c
+}
+
 // Don't use [curry] proc_attr_macro, use to_curry! to auto deduce type for closure type
 let f = to_curry!(|a, b, c| product(a, b, c));  
 
@@ -100,14 +107,16 @@ let f = to_curry!(|a, b, c| product(a, b, c));
 - `to_curry!` could change the order of passed-in arguments:
 
 ```rust
+use curried::to_curry;
+
 fn concat_into_string(a: i32, b: i32, c: i32) -> String {
-  unimplemented!();
+    format!("{a} {b} {c}")
 }
 
 let f1 = to_curry!(|a, b, c| concat_into_string(a, b ,c));
-f1(1)(23)(456)  // "123456"
+f1(1)(23)(456);  // "123456"
 
 let f2 = to_curry!(|a, b, c| concat_into_string(b, c ,a));
-f2(1)(23)(456)  // "234561"
+f2(1)(23)(456);  // "234561"
 ```
 
