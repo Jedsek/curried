@@ -10,34 +10,36 @@ use syn::{parse_macro_input, Block, FnArg, ItemFn, Pat, ReturnType, Type};
 pub fn to_curry(input: TokenStream) -> TokenStream {
     let input = proc_macro2::TokenStream::from(input);
 
-    let mut in_body = true;
-    let mut f = None;
-    let mut body = None;
+    let (mut fn_name, mut body) = (None, None);
+    let mut not_in_body = true;
     let mut args = vec![];
 
-    for tt in input.into_iter() {
+    for tt in input {
         match tt {
-            TokenTree::Group(b) => body = Some(b),
-            TokenTree::Punct(p) if p.as_char() == '|' => in_body = !in_body,
-            TokenTree::Ident(ident) => {
-                if in_body {
-                    f = Some(ident)
-                } else {
-                    args.push(ident)
-                }
+            TokenTree::Group(group) => {
+                body = Some(group);
+                break;
+            }
+            TokenTree::Ident(ident) if not_in_body => {
+                fn_name = Some(ident);
+                not_in_body = false;
             }
             _ => (),
         }
     }
 
-    let f = f.unwrap();
+    for tt in body.clone().unwrap().stream().into_iter() {
+        if let TokenTree::Ident(ident) = tt {
+            args.push(ident)
+        }
+    }
     let body = body.unwrap();
 
-    let gen = quote!(
-        #( move |#args| )* #f #body
+    let closure = quote!(
+        #( move |#args| )* #fn_name #body
     );
 
-    gen.into()
+    closure.into()
 }
 
 #[proc_macro_attribute]
@@ -52,7 +54,7 @@ pub fn curry(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let mut arg_idents = vec![];
     let mut arg_types = vec![];
-    for arg in fn_args.into_iter() {
+    for arg in fn_args {
         let (ident, ty) = match arg {
             FnArg::Typed(p) => (p.pat, p.ty),
             FnArg::Receiver(_) => panic!("self parameter is unsupported now"),
@@ -63,11 +65,17 @@ pub fn curry(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let return_type = generate_return_type(&arg_types, fn_return_type);
     let body = generate_body(&arg_idents, &arg_types, body);
-    let first_arg_ident = arg_idents.first().unwrap();
-    let first_arg_type = arg_types.first().unwrap();
+    let first_arg_ident = arg_idents.first();
+    let first_arg_type = arg_types.first();
+
+    let first_arg = if first_arg_ident.is_some() {
+        quote!(#first_arg_ident: #first_arg_type)
+    } else {
+        quote!()
+    };
 
     let new_fn = quote!(
-        #vis fn #fn_ident #impl_generics (#first_arg_ident: #first_arg_type) #return_type #where_clause {
+        #vis fn #fn_ident #impl_generics (#first_arg) #return_type #where_clause {
             #body
         }
     );
@@ -85,11 +93,11 @@ fn generate_return_type(
     let range = 1..last;
     let len = range.len();
 
-    let types = &types[range.clone()];
+    let types = types.get(range).unwrap_or_default();
 
     let fn_return_type = quote!(#fn_return_type).to_string();
     let mut token_stream = String::new();
-    for ty in types.iter() {
+    for ty in types {
         let ty = quote!(#ty);
         token_stream += &format!("-> Box<dyn FnOnce({ty})");
     }
@@ -108,8 +116,8 @@ fn generate_body(
     let range = 1..last;
     let len = range.len();
 
-    let idents = &idents[range.clone()];
-    let types = &types[range];
+    let idents = idents.get(range.clone()).unwrap_or_default();
+    let types = types.get(range).unwrap_or_default();
 
     let body = quote!(#body);
     let mut token_stream = String::new();

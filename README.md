@@ -24,7 +24,7 @@ where
 }
 
 fn map(a: i32, b: i32, c: i32) -> i32 {
-    a + b - c
+    a - b - c
 }
 
 fn normal_curry() {
@@ -39,9 +39,9 @@ fn generic_curry() {
 }
 
 fn map_curry() {
-    let f = to_curry!(|a, b, c| map(b, a, c));
-    let i = [1, 2, 3].map(f(1)(-3));
-    assert_eq!(i, [-3, -4, -5]);
+    let f = to_curry!(map(a, b, c));
+    let i = [1, 2, 3].map(f(1)(2));
+    assert_eq!(i, [-2, -3, -4]);
 }
 ```
 
@@ -79,8 +79,8 @@ use curried::to_curry;
 
 fn f<T>(_: i32, _: T) {}
 
-let g1 = to_curry!(|a, b| f(a, b));
-let g2 = to_curry!(|a, b| f(a, b));
+let g1 = to_curry!(f(a, b));
+let g2 = to_curry!(f(a, b));
 
 let gg1 = g1(1);
 gg1(1);
@@ -99,24 +99,7 @@ fn product(a: i32, b: i32, c: i32) -> i32 {
 }
 
 // Don't use [curry] proc_attr_macro, use to_curry! to auto deduce type for closure type
-let f = to_curry!(|a, b, c| product(a, b, c));  
+let f = to_curry!(product(a, b, c));  
 
 [1, 2, 3].map(f(10)(10));  // [100, 200, 300]
 ```
-
-- `to_curry!` could change the order of passed-in arguments:
-
-```rust
-use curried::to_curry;
-
-fn concat_into_string(a: i32, b: i32, c: i32) -> String {
-    format!("{a} {b} {c}")
-}
-
-let f1 = to_curry!(|a, b, c| concat_into_string(a, b ,c));
-f1(1)(23)(456);  // "123456"
-
-let f2 = to_curry!(|a, b, c| concat_into_string(b, c ,a));
-f2(1)(23)(456);  // "234561"
-```
-

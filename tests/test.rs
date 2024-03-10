@@ -15,8 +15,11 @@ where
 }
 
 fn map(a: i32, b: i32, c: i32) -> i32 {
-    a + b - c
+    a - b - c
 }
+
+#[curry]
+fn empty_fn() {}
 
 #[test]
 fn normal_curry() {
@@ -33,7 +36,7 @@ fn generic_curry() {
 
 #[test]
 fn map_curry() {
-    let f = to_curry!(|a, b, c| map(b, a, c));
-    let i = [1, 2, 3].map(f(1)(-3));
-    assert_eq!(i, [-3, -4, -5]);
+    let f = to_curry!(map(a, b, c));
+    let i = [1, 2, 3].map(f(1)(2));
+    assert_eq!(i, [-2, -3, -4]);
 }
